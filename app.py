@@ -3,8 +3,8 @@ import google.generativeai as genai
 import time
 
 # --- CONFIGURAÇÃO ---
-st.set_page_config(page_title="Fábrica de Histórias Longas", page_icon="📚", layout="wide")
-st.title("📚 Gerador de Histórias Longas (20-40 min)")
+st.set_page_config(page_title="Fábrica de Épicos IA", page_icon="🏛️", layout="wide")
+st.title("🏛️ Gerador de Histórias Longas (EN -> PT)")
 
 # --- API ---
 try:
@@ -14,101 +14,144 @@ except:
     st.error("Configure o secrets.toml com a GOOGLE_API_KEY")
     st.stop()
 
-# --- ESTADO DA SESSÃO (Memória do Streamlit) ---
-if 'capitulos_gerados' not in st.session_state:
-    st.session_state['capitulos_gerados'] = [] # Guarda o texto de cada capítulo
-if 'roteiro_completo' not in st.session_state:
-    st.session_state['roteiro_completo'] = ""
-if 'titulos_capitulos' not in st.session_state:
-    st.session_state['titulos_capitulos'] = []
+# --- MEMÓRIA DA SESSÃO ---
+# Armazena cada etapa para não perder nada
+keys = ['sinopse_en', 'critica_sinopse', 'titulos_en', 'texto_completo_en', 'texto_completo_pt']
+for k in keys:
+    if k not in st.session_state:
+        st.session_state[k] = None
 
-# --- FUNÇÕES ---
-def gerar_outline(tema, nicho):
+# --- FUNÇÕES DE AGENTES ---
+
+def agente_roteirista_sinopse(tema, nicho):
     model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = f"""
-    Atue como um autor de best-sellers. Crie um esboço (outline) para uma história profunda sobre "{tema}" no nicho "{nicho}".
-    O objetivo é ter uma narração de aproximadamente 30 minutos.
-    Crie APENAS uma lista com 8 títulos de capítulos que criem um arco narrativo completo.
-    Retorne apenas os títulos, um por linha.
+    Role: Professional Screenwriter for {nicho}.
+    Task: Create a deep, engaging premise (synopsis) for a 30-minute story about: "{tema}".
+    Format: A single paragraph summarising the narrative arc, the emotional conflict, and the resolution.
+    Language: English.
+    """
+    return model.generate_content(prompt).text
+
+def agente_critico(sinopse):
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    prompt = f"""
+    Role: Harsh Literary Critic.
+    Task: Analyze this synopsis: "{sinopse}".
+    Output: Give a score from 0 to 10. If below 8, explain why briefly. If 8+, just say "APPROVED".
+    """
+    return model.generate_content(prompt).text
+
+def agente_estruturador(sinopse):
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    prompt = f"""
+    Based on this synopsis: "{sinopse}".
+    Create a list of 8 Chapter Titles that build suspense and engagement.
+    Return ONLY the titles, one per line.
     """
     resp = model.generate_content(prompt)
     return resp.text.split('\n')
 
-def escrever_capitulo(titulo, contexto_anterior, nicho):
+def agente_escritor_capitulo(titulo, sinopse, contexto_anterior):
     model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = f"""
-    Escreva o capítulo: "{titulo}" para uma história do nicho {nicho}.
+    Write Chapter: "{titulo}".
+    Story Premise: "{sinopse}".
+    Previous Context: {contexto_anterior[-600:] if contexto_anterior else "Start of story"}.
     
-    Contexto anterior: {contexto_anterior[-500:] if contexto_anterior else "Início da história."}
-    
-    Regras:
-    1. Escreva aproximadamente 500 a 600 palavras.
-    2. Linguagem imersiva, detalhada e emocionante (estilo audiobook/documentário).
-    3. Foque na narrativa e descrição de cenários/sentimentos.
-    4. NÃO coloque metadados, apenas o texto da narração.
+    Guidelines:
+    1. Write approx 500 words.
+    2. Style: Immersive storytelling, biblical/historical documentary style.
+    3. Focus on sensory details and emotion.
+    4. Language: English.
     """
-    resp = model.generate_content(prompt)
-    return resp.text
+    return model.generate_content(prompt).text
+
+def agente_tradutor(texto_en):
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    prompt = f"""
+    Translate the following text to Portuguese (Brazil).
+    Maintain the epic, emotional, and narrative tone.
+    Adapt expressions to sound natural in Portuguese, do not translate literally.
+    
+    Text:
+    {texto_en}
+    """
+    return model.generate_content(prompt).text
 
 # --- INTERFACE ---
-with st.sidebar:
-    nicho = st.selectbox("Nicho", ["Bíblico", "Mistério/Crime", "História Real"])
-    tema = st.text_area("Tema da História", height=100)
-    if st.button("1. Planejar Capítulos"):
-        titulos = gerar_outline(tema, nicho)
-        # Limpa sujeira da lista se houver linhas vazias
-        st.session_state['titulos_capitulos'] = [t for t in titulos if t.strip() != ""]
-        st.session_state['capitulos_gerados'] = []
-        st.session_state['roteiro_completo'] = ""
-        st.success("Estrutura criada! Veja ao lado.")
 
-# --- ÁREA PRINCIPAL ---
-if st.session_state['titulos_capitulos']:
-    st.subheader("📖 Estrutura da História")
+with st.sidebar:
+    st.header("1. Definição")
+    nicho = st.selectbox("Nicho", ["Bible Stories", "Mystery/Horror", "True History"])
+    tema = st.text_area("Tema (pode escrever em PT)", height=100)
     
-    # Mostra os capítulos planejados
-    for i, tit in enumerate(st.session_state['titulos_capitulos']):
-        st.text(f"Capítulo {i+1}: {tit}")
-    
-    st.divider()
-    
-    if st.button("2. Escrever História Completa (Isso vai demorar um pouco)"):
-        texto_acumulado = ""
-        progresso = st.progress(0)
-        total = len(st.session_state['titulos_capitulos'])
+    if st.button("Gerar Sinopse"):
+        st.session_state['sinopse_en'] = agente_roteirista_sinopse(tema, nicho)
+        # Ao gerar nova sinopse, reseta o resto
+        st.session_state['critica_sinopse'] = None
+        st.session_state['titulos_en'] = None
+
+# --- FLUXO PRINCIPAL ---
+
+# 1. SINOPSE E CRÍTICA
+if st.session_state['sinopse_en']:
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.subheader("📝 Sinopse (English)")
+        st.info(st.session_state['sinopse_en'])
+    with col2:
+        if st.button("Chamar Agente Crítico"):
+            st.session_state['critica_sinopse'] = agente_critico(st.session_state['sinopse_en'])
         
+        if st.session_state['critica_sinopse']:
+            st.warning(f"Parecer do Crítico: {st.session_state['critica_sinopse']}")
+
+    st.divider()
+
+    # 2. APROVAÇÃO E ESTRUTURA
+    if st.button("Aprovar e Gerar Capítulos"):
+        st.session_state['titulos_en'] = agente_estruturador(st.session_state['sinopse_en'])
+
+# 3. ESCRITA DOS CAPÍTULOS
+if st.session_state['titulos_en']:
+    st.subheader("📖 Estrutura dos Capítulos")
+    st.write(st.session_state['titulos_en'])
+    
+    if st.button("Escrever História Completa (EN)"):
+        texto_full = ""
+        progresso = st.progress(0)
+        total = len(st.session_state['titulos_en'])
         placeholder = st.empty()
         
-        for index, titulo in enumerate(st.session_state['titulos_capitulos']):
-            with placeholder.container():
-                st.info(f"Escrevendo Capítulo {index+1}/{total}: {titulo}...")
-            
-            # Gera o texto do capítulo
-            texto_cap = escrever_capitulo(titulo, texto_acumulado, nicho)
-            
-            # Adiciona ao montante
-            st.session_state['capitulos_gerados'].append(f"\n\n## {titulo}\n\n{texto_cap}")
-            texto_acumulado += texto_cap
-            
-            # Atualiza barra de progresso
-            progresso.progress((index + 1) / total)
-            
-            # Pequena pausa para não estourar limite da API (se houver)
-            time.sleep(1)
+        for i, titulo in enumerate(st.session_state['titulos_en']):
+            if titulo.strip():
+                with placeholder.container():
+                    st.write(f"✍️ Writing Chapter {i+1}: {titulo}...")
+                
+                cap_texto = agente_escritor_capitulo(titulo, st.session_state['sinopse_en'], texto_full)
+                texto_full += f"\n\n## {titulo}\n\n{cap_texto}"
+                progresso.progress((i+1)/total)
+                time.sleep(1) # Respeito à API
         
-        st.session_state['roteiro_completo'] = texto_acumulado
-        placeholder.success("História Completa Gerada!")
+        st.session_state['texto_completo_en'] = texto_full
+        placeholder.success("História em Inglês Concluída!")
 
-# --- RESULTADO FINAL ---
-if st.session_state['roteiro_completo']:
-    st.subheader("📜 Roteiro Final")
+# 4. EXIBIÇÃO E TRADUÇÃO
+if st.session_state['texto_completo_en']:
+    tab_en, tab_pt = st.tabs(["🇺🇸 English (Original)", "🇧🇷 Português (Traduzido)"])
     
-    total_palavras = len(st.session_state['roteiro_completo'].split())
-    tempo_estimado = total_palavras / 140
+    with tab_en:
+        st.text_area("Full Script (EN)", st.session_state['texto_completo_en'], height=400)
     
-    st.metric("Total de Palavras", total_palavras)
-    st.metric("Tempo Estimado de Narração", f"{tempo_estimado:.1f} minutos")
-    
-    st.text_area("Copie seu texto:", st.session_state['roteiro_completo'], height=400)
-    
-    st.info("Próximo passo: Gerar Áudio (Edge-TTS) para esse textão.")
+    with tab_pt:
+        if st.session_state['texto_completo_pt'] is None:
+            if st.button("Traduzir para Português"):
+                with st.spinner("Traduzindo com contexto narrativo..."):
+                    # Traduzimos em blocos grandes para manter coerência
+                    # (Num app real, traduziríamos capítulo por capítulo, aqui faremos direto pro MVP)
+                    st.session_state['texto_completo_pt'] = agente_tradutor(st.session_state['texto_completo_en'])
+                    st.rerun()
+        else:
+            st.text_area("Roteiro Completo (PT)", st.session_state['texto_completo_pt'], height=400)
+            st.success("Temos os dois textos prontos! Próximo passo: Narração.")
