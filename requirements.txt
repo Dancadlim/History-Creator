@@ -4,3 +4,5 @@ edge-tts
 moviepy
 asyncio
 imageio-ffmpeg
+nest_asyncio
+Pillow
