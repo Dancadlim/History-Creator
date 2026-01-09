@@ -27,7 +27,7 @@ tema = st.text_input("Sobre o que é a história?", placeholder="Ex: A coragem d
 # --- FUNÇÃO GERADORA (GEMINI 1.5 FLASH) ---
 def gerar_historia(nicho, tema):
     # Modelo rápido e barato (ou free)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     prompt = f"""
     Você é um roteirista especialista em YouTube Shorts e TikTok.
