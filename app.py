@@ -1,76 +1,114 @@
 import streamlit as st
 import google.generativeai as genai
-import os
+import time
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Fábrica de Histórias IA", page_icon="🎬", layout="centered")
+# --- CONFIGURAÇÃO ---
+st.set_page_config(page_title="Fábrica de Histórias Longas", page_icon="📚", layout="wide")
+st.title("📚 Gerador de Histórias Longas (20-40 min)")
 
-st.title("🎬 Gerador de Histórias (MVP)")
-st.caption("Powered by Gemini 2.5 Flash")
-
-# --- CONFIGURAÇÃO DA API (VIA SECRETS) ---
+# --- API ---
 try:
-    # Busca a chave diretamente nos segredos do Streamlit
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
-except Exception as e:
-    st.error("⚠️ Erro de Configuração: API Key não encontrada.")
-    st.info("Certifique-se de que você criou o arquivo `.streamlit/secrets.toml` com a linha: `GOOGLE_API_KEY = 'sua-chave'`")
+except:
+    st.error("Configure o secrets.toml com a GOOGLE_API_KEY")
     st.stop()
 
-# --- INPUTS DO USUÁRIO ---
-with st.container(border=True):
-    st.subheader("Configuração do Roteiro")
-    col1, col2 = st.columns(2)
-    with col1:
-        nicho = st.selectbox("Escolha o Nicho:", ["Histórias Bíblicas", "Mistério/Curiosidades"])
-    with col2:
-        idioma_base = st.selectbox("Idioma Principal:", ["Português", "Inglês"])
+# --- ESTADO DA SESSÃO (Memória do Streamlit) ---
+if 'capitulos_gerados' not in st.session_state:
+    st.session_state['capitulos_gerados'] = [] # Guarda o texto de cada capítulo
+if 'roteiro_completo' not in st.session_state:
+    st.session_state['roteiro_completo'] = ""
+if 'titulos_capitulos' not in st.session_state:
+    st.session_state['titulos_capitulos'] = []
 
-    tema = st.text_input("Sobre o que é a história?", placeholder="Ex: A coragem de Davi contra Golias")
-
-# --- FUNÇÃO GERADORA (GEMINI 2.5 FLASH) ---
-def gerar_historia(nicho, tema, idioma):
+# --- FUNÇÕES ---
+def gerar_outline(tema, nicho):
     model = genai.GenerativeModel('gemini-2.5-flash')
-    
     prompt = f"""
-    Você é um roteirista viral especialista em YouTube Shorts e TikTok.
-    Crie uma história narrada para o nicho: {nicho}.
-    Tema: {tema}.
-    Idioma: {idioma}.
-    
-    Regras OBRIGATÓRIAS:
-    1. O texto deve ter no máximo 130 palavras (para dar aprox 50-60 segundos de áudio).
-    2. Comece com uma frase de impacto (Gancho) nos primeiros 3 segundos.
-    3. Linguagem simples, engajadora e emocionante.
-    4. Não coloque indicações de cena, música ou pausas (ex: [pausa dramática]), apenas o texto puro da narração.
-    5. Retorne APENAS o texto da história, nada mais.
+    Atue como um autor de best-sellers. Crie um esboço (outline) para uma história profunda sobre "{tema}" no nicho "{nicho}".
+    O objetivo é ter uma narração de aproximadamente 30 minutos.
+    Crie APENAS uma lista com 8 títulos de capítulos que criem um arco narrativo completo.
+    Retorne apenas os títulos, um por linha.
     """
+    resp = model.generate_content(prompt)
+    return resp.text.split('\n')
+
+def escrever_capitulo(titulo, contexto_anterior, nicho):
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    prompt = f"""
+    Escreva o capítulo: "{titulo}" para uma história do nicho {nicho}.
     
-    with st.spinner(f'O Gemini 2.5 está escrevendo em {idioma}...'):
-        try:
-            response = model.generate_content(prompt)
-            return response.text
-        except Exception as e:
-            st.error(f"Erro ao conectar com Gemini: {e}")
-            return None
+    Contexto anterior: {contexto_anterior[-500:] if contexto_anterior else "Início da história."}
+    
+    Regras:
+    1. Escreva aproximadamente 500 a 600 palavras.
+    2. Linguagem imersiva, detalhada e emocionante (estilo audiobook/documentário).
+    3. Foque na narrativa e descrição de cenários/sentimentos.
+    4. NÃO coloque metadados, apenas o texto da narração.
+    """
+    resp = model.generate_content(prompt)
+    return resp.text
 
-# --- BOTÃO DE AÇÃO ---
-if st.button("✨ Gerar Roteiro", type="primary", use_container_width=True):
-    if not tema:
-        st.warning("Por favor, escreva um tema para começar.")
-    else:
-        historia = gerar_historia(nicho, tema, idioma_base)
-        
-        if historia:
-            # Salva na sessão
-            st.session_state['historia_gerada'] = historia
-            st.session_state['nicho_atual'] = nicho
-            
-            st.success("Roteiro Criado!")
-            st.text_area("Roteiro Final:", value=historia, height=300)
+# --- INTERFACE ---
+with st.sidebar:
+    nicho = st.selectbox("Nicho", ["Bíblico", "Mistério/Crime", "História Real"])
+    tema = st.text_area("Tema da História", height=100)
+    if st.button("1. Planejar Capítulos"):
+        titulos = gerar_outline(tema, nicho)
+        # Limpa sujeira da lista se houver linhas vazias
+        st.session_state['titulos_capitulos'] = [t for t in titulos if t.strip() != ""]
+        st.session_state['capitulos_gerados'] = []
+        st.session_state['roteiro_completo'] = ""
+        st.success("Estrutura criada! Veja ao lado.")
 
-# --- INDICAÇÃO DE PRÓXIMOS PASSOS ---
-if 'historia_gerada' in st.session_state:
+# --- ÁREA PRINCIPAL ---
+if st.session_state['titulos_capitulos']:
+    st.subheader("📖 Estrutura da História")
+    
+    # Mostra os capítulos planejados
+    for i, tit in enumerate(st.session_state['titulos_capitulos']):
+        st.text(f"Capítulo {i+1}: {tit}")
+    
     st.divider()
-    st.info("🔽 Próxima Etapa: Gerar Áudio (Edge-TTS) e Imagem (Gemini 2.5) para este texto.")
+    
+    if st.button("2. Escrever História Completa (Isso vai demorar um pouco)"):
+        texto_acumulado = ""
+        progresso = st.progress(0)
+        total = len(st.session_state['titulos_capitulos'])
+        
+        placeholder = st.empty()
+        
+        for index, titulo in enumerate(st.session_state['titulos_capitulos']):
+            with placeholder.container():
+                st.info(f"Escrevendo Capítulo {index+1}/{total}: {titulo}...")
+            
+            # Gera o texto do capítulo
+            texto_cap = escrever_capitulo(titulo, texto_acumulado, nicho)
+            
+            # Adiciona ao montante
+            st.session_state['capitulos_gerados'].append(f"\n\n## {titulo}\n\n{texto_cap}")
+            texto_acumulado += texto_cap
+            
+            # Atualiza barra de progresso
+            progresso.progress((index + 1) / total)
+            
+            # Pequena pausa para não estourar limite da API (se houver)
+            time.sleep(1)
+        
+        st.session_state['roteiro_completo'] = texto_acumulado
+        placeholder.success("História Completa Gerada!")
+
+# --- RESULTADO FINAL ---
+if st.session_state['roteiro_completo']:
+    st.subheader("📜 Roteiro Final")
+    
+    total_palavras = len(st.session_state['roteiro_completo'].split())
+    tempo_estimado = total_palavras / 140
+    
+    st.metric("Total de Palavras", total_palavras)
+    st.metric("Tempo Estimado de Narração", f"{tempo_estimado:.1f} minutos")
+    
+    st.text_area("Copie seu texto:", st.session_state['roteiro_completo'], height=400)
+    
+    st.info("Próximo passo: Gerar Áudio (Edge-TTS) para esse textão.")
