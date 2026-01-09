@@ -1,4 +1,3 @@
-# Arquivo: pages/2_🎬_Estudio.py
 import streamlit as st
 import utils
 import os
@@ -6,51 +5,49 @@ import os
 st.set_page_config(page_title="Estúdio", page_icon="🎬", layout="wide")
 st.title("🎬 Estúdio de Produção")
 
-# Verifica se tem roteiro
 if not st.session_state['texto_completo_pt']:
-    st.error("🚫 Nenhum roteiro encontrado! Vá para a página 'Roteirização' primeiro.")
+    st.warning("⚠️ Crie um roteiro na página anterior primeiro.")
     st.stop()
 
-st.info("Roteiro carregado da memória. Configure a renderização abaixo.")
+col_config, col_action = st.columns([1, 2])
 
-col_preview, col_action = st.columns([1, 2])
-with col_preview:
+with col_config:
     st.subheader("Configuração")
-    preview_mode = st.checkbox("Modo Preview (Apenas 1 min)", value=True, help="Gera rápido para testar.")
-    tema_atual = st.text_input("Texto para Capa", value="Nova História")
+    preview = st.checkbox("Modo Preview (1 min)", value=True, help="Desmarque para gerar o vídeo completo (demora mais).")
+    titulo_capa = st.text_input("Título na Capa", value="História Épica")
 
 with col_action:
-    st.subheader("Ações")
+    st.subheader("Processamento")
     
-    # Passo 1: Assets
-    if st.button("1. Gerar Áudios e Capa"):
-        with st.spinner("Criando capa..."):
-            capa = utils.gerar_capa_simples(tema_atual, "História IA")
+    # Botão 1: Assets
+    if st.button("1. Gerar Áudio e Capa"):
+        with st.spinner("Gerando assets..."):
+            # Gera Capa
+            capa = utils.gerar_capa_simples(titulo_capa, "Canal IA")
             st.session_state['imagem_capa_path'] = capa
-            st.image(capa, width=200)
-        
-        with st.spinner("Gerando Áudios (Edge TTS)..."):
+            st.image(capa, width=200, caption="Capa Gerada")
+            
+            # Gera Áudios
             utils.gerar_audio(st.session_state['texto_completo_en'], "en")
             utils.gerar_audio(st.session_state['texto_completo_pt'], "pt")
-        
-        st.success("Assets gerados na pasta /temp!")
+        st.success("Assets Prontos!")
 
-    # Passo 2: Render
-    if st.button("2. Renderizar Vídeos (.MP4)"):
+    # Botão 2: Render
+    if st.button("2. Renderizar Vídeos"):
         if not os.path.exists("temp/audio_pt.mp3"):
-            st.error("Gere os áudios primeiro!")
+            st.error("Gere os áudios primeiro.")
         else:
             prog = st.progress(0)
             
             with st.spinner("Renderizando PT-BR..."):
-                file_pt = utils.renderizar_video("temp/audio_pt.mp3", st.session_state['imagem_capa_path'], "pt", preview_mode)
-                st.video(file_pt)
+                vid_pt = utils.renderizar_video("temp/audio_pt.mp3", st.session_state['imagem_capa_path'], "pt", preview)
+                if vid_pt: st.video(vid_pt)
             
             prog.progress(50)
             
             with st.spinner("Renderizando English..."):
-                file_en = utils.renderizar_video("temp/audio_en.mp3", st.session_state['imagem_capa_path'], "en", preview_mode)
-                st.video(file_en)
+                vid_en = utils.renderizar_video("temp/audio_en.mp3", st.session_state['imagem_capa_path'], "en", preview)
+                if vid_en: st.video(vid_en)
             
             prog.progress(100)
             st.balloons()
