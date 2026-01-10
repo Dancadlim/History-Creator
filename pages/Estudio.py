@@ -3,6 +3,8 @@ import utils
 import os
 
 st.set_page_config(page_title="Estúdio", page_icon="🎬", layout="wide")
+# --- 🔒 TRAVA DE SEGURANÇA ---
+utils.verificar_senha()
 st.title("🎬 Estúdio de Produção")
 
 # --- BLOCO DE SEGURANÇA (CORREÇÃO DO ERRO) ---
