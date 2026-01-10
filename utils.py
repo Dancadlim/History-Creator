@@ -181,3 +181,39 @@ def renderizar_video(audio_path, imagem_path, idioma, preview=False):
     output = f"video_final_{idioma}.mp4"
     video.write_videofile(output, fps=1, codec="libx264", audio_codec="aac", preset="ultrafast")
     return output
+
+# --- FUNÇÃO DE SEGURANÇA (LOGIN) ---
+def verificar_senha():
+    """
+    Trava a execução da página até que a senha correta seja inserida.
+    """
+    # Se a chave não existir no session_state, cria como False (bloqueado)
+    if 'password_correct' not in st.session_state:
+        st.session_state.password_correct = False
+
+    # Se já estiver correto, apenas retorna e deixa o código seguir
+    if st.session_state.password_correct:
+        return
+
+    # --- TELA DE LOGIN ---
+    st.markdown("### 🔒 Acesso Restrito")
+    st.caption("Este sistema utiliza recursos pagos. Por favor, identifique-se.")
+    
+    senha_input = st.text_input("Digite a senha de acesso:", type="password")
+    
+    if st.button("Entrar"):
+        # Verifica se a senha bate com o secrets
+        try:
+            senha_correta = st.secrets["APP_PASSWORD"]
+        except:
+            st.error("ERRO: A senha não foi configurada no secrets.toml (chave APP_PASSWORD).")
+            st.stop()
+
+        if senha_input == senha_correta:
+            st.session_state.password_correct = True
+            st.rerun() # Recarrega a página para liberar o conteúdo
+        else:
+            st.error("❌ Senha incorreta.")
+    
+    # IMPORTANTE: Para a execução de tudo que vem abaixo enquanto não logar
+    st.stop()
