@@ -5,3 +5,5 @@ moviepy==1.0.3
 imageio-ffmpeg
 nest_asyncio
 Pillow
+firebase-admin
+requests
