@@ -185,35 +185,31 @@ def renderizar_video(audio_path, imagem_path, idioma, preview=False):
 # --- FUNÇÃO DE SEGURANÇA (LOGIN) ---
 def verificar_senha():
     """
-    Trava a execução da página até que a senha correta seja inserida.
+    Retorna True se o usuário estiver logado.
+    Retorna False e pede senha caso contrário.
     """
-    # Se a chave não existir no session_state, cria como False (bloqueado)
-    if 'password_correct' not in st.session_state:
-        st.session_state.password_correct = False
+    # 1. Verifica se a senha já está correta na memória (Login feito antes)
+    if st.session_state.get("password_correct", False):
+        return True
 
-    # Se já estiver correto, apenas retorna e deixa o código seguir
-    if st.session_state.password_correct:
-        return
+    # 2. Se não estiver logado, mostra o input de senha
+    st.markdown("## 🔒 Acesso Restrito")
+    password_input = st.text_input("Digite a senha do sistema:", type="password")
 
-    # --- TELA DE LOGIN ---
-    st.markdown("### 🔒 Acesso Restrito")
-    st.caption("Este sistema utiliza recursos pagos. Por favor, identifique-se.")
-    
-    senha_input = st.text_input("Digite a senha de acesso:", type="password")
-    
     if st.button("Entrar"):
-        # Verifica se a senha bate com o secrets
+        # AQUI É O PULO DO GATO:
+        # st.secrets busca direto naquele painel seguro do Streamlit Cloud
         try:
-            senha_correta = st.secrets["APP_PASSWORD"]
-        except:
-            st.error("ERRO: A senha não foi configurada no secrets.toml (chave APP_PASSWORD).")
+            senha_secreta = st.secrets["APP_PASSWORD"]
+        except KeyError:
+            st.error("Erro: A senha não foi configurada nos Secrets do Streamlit.")
             st.stop()
 
-        if senha_input == senha_correta:
-            st.session_state.password_correct = True
-            st.rerun() # Recarrega a página para liberar o conteúdo
+        if password_input == senha_secreta:
+            st.session_state["password_correct"] = True
+            st.rerun()  # Recarrega a página para liberar o acesso
         else:
-            st.error("❌ Senha incorreta.")
+            st.error("❌ Senha incorreta")
     
-    # IMPORTANTE: Para a execução de tudo que vem abaixo enquanto não logar
-    st.stop()
+    # 3. Bloqueia o resto do app enquanto não acertar a senha
+    return False
