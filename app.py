@@ -4,6 +4,10 @@ import os
 
 st.set_page_config(page_title="Content Farm IA", page_icon="🏭", layout="wide")
 
+# --- 🔒 TRAVA DE SEGURANÇA ---
+utils.verificar_senha()
+# -----------------------------
+
 st.title("🏭 Central de Produção de Conteúdo")
 st.markdown("""
 Bem-vindo ao seu Estúdio de IA. Utilize o menu lateral para navegar:
