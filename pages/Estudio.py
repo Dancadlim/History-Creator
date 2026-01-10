@@ -3,33 +3,34 @@ import utils
 import os
 
 st.set_page_config(page_title="Estúdio", page_icon="🎬", layout="wide")
-# --- 🔒 TRAVA DE SEGURANÇA ---
-utils.verificar_senha()
+
+# --- 🔒 TRAVA DE SEGURANÇA (CORRIGIDA) ---
+if not utils.verificar_senha():
+    st.stop()
+# -----------------------------------------
+
 st.title("🎬 Estúdio de Produção")
 
-# --- BLOCO DE SEGURANÇA (CORREÇÃO DO ERRO) ---
-# Inicializa as variáveis se elas não existirem (ex: após um F5)
-keys_necessarias = ['sinopse_en', 'titulos_en', 'texto_completo_en', 'texto_completo_pt', 'imagem_capa_path']
-
+# --- BLOCO DE SEGURANÇA ---
+keys_necessarias = ['sinopse_en', 'titulos_en', 'texto_completo_en', 'texto_completo_pt', 'imagem_capa_path', 'tema_atual']
 for k in keys_necessarias:
     if k not in st.session_state:
         st.session_state[k] = None
-# ---------------------------------------------
 
-# Agora verificamos com segurança
+# Verifica roteiro
 if not st.session_state['texto_completo_pt']:
     st.warning("⚠️ Nenhum roteiro encontrado na memória.")
     st.info("Por favor, vá para a página **Roteirização** primeiro para criar ou carregar uma história.")
-    st.stop() # Para a execução aqui para não dar erro lá embaixo
+    st.stop()
 
 col_config, col_action = st.columns([1, 2])
 
 with col_config:
     st.subheader("Configuração")
     preview = st.checkbox("Modo Preview (1 min)", value=True, help="Desmarque para gerar o vídeo completo (demora mais).")
-    # Tenta sugerir um título baseado no tema, se existir
+    
     valor_padrao = "Minha História"
-    if st.session_state.get('tema_atual'): # Se tiver salvo o tema
+    if st.session_state.get('tema_atual'):
          valor_padrao = st.session_state['tema_atual']
          
     titulo_capa = st.text_input("Título na Capa", value=valor_padrao)
@@ -44,11 +45,11 @@ with col_action:
             capa = utils.gerar_capa_simples(titulo_capa, "Canal IA")
             st.session_state['imagem_capa_path'] = capa
             
-            # Gera Áudios
+            # Gera Áudios (Passando o titulo para IA falar)
             if st.session_state['texto_completo_en']:
-                utils.gerar_audio(st.session_state['texto_completo_en'], "en")
+                utils.gerar_audio(st.session_state['texto_completo_en'], "en", titulo_capa)
             if st.session_state['texto_completo_pt']:
-                utils.gerar_audio(st.session_state['texto_completo_pt'], "pt")
+                utils.gerar_audio(st.session_state['texto_completo_pt'], "pt", titulo_capa)
         
         st.success("Assets Prontos! Ouça abaixo 👇")
 
@@ -76,7 +77,6 @@ with col_action:
         else:
             prog = st.progress(0)
             
-            # Garante que temos um caminho de capa, senão usa padrão
             caminho_capa = st.session_state.get('imagem_capa_path')
             if not caminho_capa or not os.path.exists(caminho_capa):
                 st.warning("Capa não encontrada, gerando uma nova rápida...")
