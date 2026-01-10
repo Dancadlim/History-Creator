@@ -5,6 +5,8 @@ import pandas as pd
 from datetime import datetime
 
 st.set_page_config(page_title="Biblioteca", page_icon="📚", layout="wide")
+# --- 🔒 TRAVA DE SEGURANÇA ---
+utils.verificar_senha()
 st.title("📚 Biblioteca de Histórias")
 
 # --- CONEXÃO ---
