@@ -3,7 +3,12 @@ import utils
 import time
 
 st.set_page_config(page_title="Roteiro", page_icon="✍️", layout="wide")
+
+# --- 🔒 TRAVA DE SEGURANÇA ---
+utils.verificar_senha()
+
 st.title("✍️ Roteirista Multi-Gênero")
+
 
 # --- CONFIGURAÇÃO DA HISTÓRIA ---
 with st.container(border=True):
