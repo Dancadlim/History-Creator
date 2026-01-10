@@ -182,34 +182,32 @@ def renderizar_video(audio_path, imagem_path, idioma, preview=False):
     video.write_videofile(output, fps=1, codec="libx264", audio_codec="aac", preset="ultrafast")
     return output
 
-# --- FUNÇÃO DE SEGURANÇA (LOGIN) ---
 def verificar_senha():
     """
-    Retorna True se o usuário estiver logado.
-    Retorna False e pede senha caso contrário.
+    Retorna True se logado.
+    Retorna False se não logado.
     """
-    # 1. Verifica se a senha já está correta na memória (Login feito antes)
+    # 1. Se já acertou antes, libera
     if st.session_state.get("password_correct", False):
         return True
 
-    # 2. Se não estiver logado, mostra o input de senha
-    st.markdown("## 🔒 Acesso Restrito")
-    password_input = st.text_input("Digite a senha do sistema:", type="password")
+    # 2. Mostra tela de login
+    st.markdown("### 🔒 Acesso Restrito")
+    password_input = st.text_input("Digite a senha de acesso:", type="password")
 
     if st.button("Entrar"):
-        # AQUI É O PULO DO GATO:
-        # st.secrets busca direto naquele painel seguro do Streamlit Cloud
         try:
-            senha_secreta = st.secrets["APP_PASSWORD"]
+            # Busca a senha no secrets (agora no lugar certo)
+            senha_correta = st.secrets["APP_PASSWORD"]
         except KeyError:
-            st.error("Erro: A senha não foi configurada nos Secrets do Streamlit.")
-            st.stop()
+            st.error("ERRO DE CONFIGURAÇÃO: A chave 'APP_PASSWORD' não foi achada no secrets.toml ou está dentro do bloco [firebase]. Mova ela para o topo do arquivo.")
+            st.stop() # Para tudo aqui se a config estiver errada
 
-        if password_input == senha_secreta:
+        if password_input == senha_correta:
             st.session_state["password_correct"] = True
-            st.rerun()  # Recarrega a página para liberar o acesso
+            st.rerun()
         else:
             st.error("❌ Senha incorreta")
-    
-    # 3. Bloqueia o resto do app enquanto não acertar a senha
+
+    # 3. Retorna False para quem chamou (para que a página pare de carregar)
     return False
