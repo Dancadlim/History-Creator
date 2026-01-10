@@ -5,7 +5,8 @@ import time
 st.set_page_config(page_title="Roteiro", page_icon="✍️", layout="wide")
 
 # --- 🔒 TRAVA DE SEGURANÇA ---
-utils.verificar_senha()
+if not utils.verificar_senha():
+    st.stop()
 
 st.title("✍️ Roteirista Multi-Gênero")
 
