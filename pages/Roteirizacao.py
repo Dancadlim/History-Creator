@@ -1,6 +1,6 @@
 import streamlit as st
 import utils
-import agentes_escrita  # Novo módulo
+import agentes_escrita
 import pandas as pd
 import time
 
@@ -9,6 +9,13 @@ st.set_page_config(page_title="Roteiro", page_icon="✍️", layout="wide")
 # --- 🔒 TRAVA DE SEGURANÇA ---
 if not utils.verificar_senha():
     st.stop()
+
+# --- 🔌 CONEXÃO (A CORREÇÃO ESTÁ AQUI) ---
+# Precisamos garantir que o Firebase está conectado antes de qualquer coisa
+if not utils.setup_api():
+    st.error("Erro de Conexão: Verifique se o secrets.toml está configurado corretamente.")
+    st.stop()
+# -----------------------------------------
 
 st.title("✍️ Roteirista Multi-Gênero (Modo Arquiteto)")
 
@@ -102,15 +109,20 @@ if st.session_state.get('texto_completo_pt'):
     st.divider()
     if st.button("💾 Salvar no Firebase", type="primary"):
         generos_salvar = ", ".join(generos) if generos else "Geral"
-        sucesso = utils.salvar_historia_db(
-            f"{canal} ({generos_salvar})", 
-            tema, 
-            generos_salvar,
-            st.session_state['texto_completo_pt'], 
-            st.session_state['texto_completo_en'],
-            st.session_state.get('prompts_visuais', [])
-        )
-        if sucesso: st.toast("Salvo!", icon="✅")
+        
+        # Garante que setup_api rodou (redundância de segurança)
+        if utils.setup_api():
+            sucesso = utils.salvar_historia_db(
+                f"{canal} ({generos_salvar})", 
+                tema, 
+                generos_salvar,
+                st.session_state['texto_completo_pt'], 
+                st.session_state['texto_completo_en'],
+                st.session_state.get('prompts_visuais', [])
+            )
+            if sucesso: st.toast("Salvo!", icon="✅")
+        else:
+             st.error("Erro crítico de conexão ao tentar salvar.")
 
     tab_pt, tab_en, tab_prompts = st.tabs(["🇧🇷 PT", "🇺🇸 EN", "🎨 Prompts"])
     with tab_pt: st.text_area("PT", st.session_state['texto_completo_pt'], height=500)
