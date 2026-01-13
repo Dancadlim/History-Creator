@@ -1,96 +1,122 @@
 import streamlit as st
 import utils
+import agentes_producao  # A nova fábrica
 import os
 
 st.set_page_config(page_title="Estúdio", page_icon="🎬", layout="wide")
 
-# --- 🔒 TRAVA DE SEGURANÇA (CORRIGIDA) ---
+# --- 🔒 TRAVA DE SEGURANÇA ---
 if not utils.verificar_senha():
     st.stop()
-# -----------------------------------------
 
 st.title("🎬 Estúdio de Produção")
 
-# --- BLOCO DE SEGURANÇA ---
-keys_necessarias = ['sinopse_en', 'titulos_en', 'texto_completo_en', 'texto_completo_pt', 'imagem_capa_path', 'tema_atual']
-for k in keys_necessarias:
-    if k not in st.session_state:
-        st.session_state[k] = None
-
-# Verifica roteiro
-if not st.session_state['texto_completo_pt']:
-    st.warning("⚠️ Nenhum roteiro encontrado na memória.")
-    st.info("Por favor, vá para a página **Roteirização** primeiro para criar ou carregar uma história.")
+# --- VERIFICAÇÃO DE MEMÓRIA ---
+# Garante que temos uma história carregada para produzir
+if 'texto_completo_pt' not in st.session_state or not st.session_state['texto_completo_pt']:
+    st.warning("⚠️ Nenhum roteiro carregado.")
+    st.info("Vá para **Roteirização** (criar novo) ou **Biblioteca** (carregar existente).")
     st.stop()
 
-col_config, col_action = st.columns([1, 2])
+# Inicializa variáveis de caminhos se não existirem
+if 'caminhos_imagens' not in st.session_state:
+    st.session_state['caminhos_imagens'] = []
+if 'caminhos_audio' not in st.session_state:
+    st.session_state['caminhos_audio'] = {"pt": None, "en": None}
+
+# --- CONFIGURAÇÃO ---
+col_config, col_status = st.columns([1, 2])
 
 with col_config:
-    st.subheader("Configuração")
-    preview = st.checkbox("Modo Preview (1 min)", value=True, help="Desmarque para gerar o vídeo completo (demora mais).")
+    st.subheader("⚙️ Config")
+    titulo_video = st.text_input("Título do Vídeo", value=st.session_state.get('tema_atual', 'Minha História'))
     
-    valor_padrao = "Minha História"
-    if st.session_state.get('tema_atual'):
-         valor_padrao = st.session_state['tema_atual']
-         
-    titulo_capa = st.text_input("Título na Capa", value=valor_padrao)
-
-with col_action:
-    st.subheader("Processamento")
+    # Mostra quantos prompts temos
+    prompts = st.session_state.get('prompts_visuais', [])
+    st.metric("Cenas (Prompts)", len(prompts))
     
-    # --- BOTÃO 1: GERAR ASSETS ---
-    if st.button("1. Gerar Áudio e Capa", type="primary"):
-        with st.spinner("Gerando assets..."):
-            # Gera Capa
-            capa = utils.gerar_capa_simples(titulo_capa, "Canal IA")
-            st.session_state['imagem_capa_path'] = capa
-            
-            # Gera Áudios (Passando o titulo para IA falar)
-            if st.session_state['texto_completo_en']:
-                utils.gerar_audio(st.session_state['texto_completo_en'], "en", titulo_capa)
-            if st.session_state['texto_completo_pt']:
-                utils.gerar_audio(st.session_state['texto_completo_pt'], "pt", titulo_capa)
-        
-        st.success("Assets Prontos! Ouça abaixo 👇")
+    if not prompts:
+        st.error("ERRO: Roteiro sem prompts visuais. A IA não gerou as descrições das cenas.")
 
-    # --- PLAYERS DE ÁUDIO ---
-    if os.path.exists("temp/audio_pt.mp3") and os.path.exists("temp/audio_en.mp3"):
-        st.divider()
-        col_audio1, col_audio2 = st.columns(2)
-        
-        with col_audio1:
-            st.markdown("🎧 **Áudio Português**")
-            st.audio("temp/audio_pt.mp3")
-            
-        with col_audio2:
-            st.markdown("🎧 **Áudio Inglês**")
-            st.audio("temp/audio_en.mp3")
-            
-        if os.path.exists("temp/capa_gerada.png"):
-            st.image("temp/capa_gerada.png", width=150, caption="Capa Gerada")
-        st.divider()
-
-    # --- BOTÃO 2: RENDERIZAR ---
-    if st.button("2. Renderizar Vídeos"):
-        if not os.path.exists("temp/audio_pt.mp3"):
-            st.error("Gere os áudios primeiro (Botão 1).")
+with col_status:
+    st.subheader("🏭 Linha de Produção")
+    
+    # --- PASSO 1: GERAR ASSETS (ÁUDIO + IMAGENS) ---
+    if st.button("1. Gerar Áudios e Imagens", type="primary", use_container_width=True):
+        if not prompts:
+            st.error("Não há prompts para gerar imagens.")
         else:
-            prog = st.progress(0)
-            
-            caminho_capa = st.session_state.get('imagem_capa_path')
-            if not caminho_capa or not os.path.exists(caminho_capa):
-                st.warning("Capa não encontrada, gerando uma nova rápida...")
-                caminho_capa = utils.gerar_capa_simples(titulo_capa, "Auto")
+            with st.status("Trabalhando nos Assets...", expanded=True) as status:
+                
+                # A. ÁUDIOS
+                st.write("🎙️ Gerando Narração (TTS)...")
+                if st.session_state.get('texto_completo_pt'):
+                    path_pt = agentes_producao.gerar_audio(st.session_state['texto_completo_pt'], "pt", titulo_video)
+                    st.session_state['caminhos_audio']['pt'] = path_pt
+                
+                if st.session_state.get('texto_completo_en'):
+                    path_en = agentes_producao.gerar_audio(st.session_state['texto_completo_en'], "en", titulo_video)
+                    st.session_state['caminhos_audio']['en'] = path_en
+                
+                # B. IMAGENS (LOOP)
+                st.write(f"🎨 Pintando {len(prompts)} cenas com IA...")
+                lista_imgs = []
+                progresso = st.progress(0)
+                
+                for i, prompt in enumerate(prompts):
+                    # Nome único para cada imagem: historia_X_cena_Y.png
+                    # Usamos um hash simples do prompt ou index para garantir ordem
+                    safe_name = f"cena_{i}_{str(hash(prompt))[:8]}"
+                    
+                    caminho_img = agentes_producao.gerar_imagem_ia(prompt, safe_name)
+                    if caminho_img:
+                        lista_imgs.append(caminho_img)
+                    
+                    progresso.progress((i + 1) / len(prompts))
+                
+                st.session_state['caminhos_imagens'] = lista_imgs
+                status.update(label="Assets Gerados com Sucesso!", state="complete", expanded=False)
+                st.rerun()
 
-            with st.spinner("Renderizando PT-BR..."):
-                vid_pt = utils.renderizar_video("temp/audio_pt.mp3", caminho_capa, "pt", preview)
-                if vid_pt: st.video(vid_pt)
-            
-            prog.progress(50)
-            
-            with st.spinner("Renderizando English..."):
-                vid_en = utils.renderizar_video("temp/audio_en.mp3", caminho_capa, "en", preview)
-                if vid_en: st.video(vid_en)
-            
-            prog.progress(100)
-            st.balloons()
+    # --- PREVIEW DOS ASSETS ---
+    if st.session_state['caminhos_imagens']:
+        with st.expander("Ver Imagens Geradas", expanded=False):
+            st.image(st.session_state['caminhos_imagens'], width=150, caption=[f"Cena {i+1}" for i in range(len(st.session_state['caminhos_imagens']))])
+
+    if st.session_state['caminhos_audio']['pt']:
+        st.audio(st.session_state['caminhos_audio']['pt'], format="audio/mp3")
+
+    # --- PASSO 2: RENDERIZAR VÍDEO ---
+    st.divider()
+    col_render_pt, col_render_en = st.columns(2)
+    
+    with col_render_pt:
+        if st.button("2. Renderizar Vídeo PT-BR", disabled=not st.session_state['caminhos_audio']['pt']):
+            with st.spinner("Editando vídeo PT..."):
+                video_pt = agentes_producao.renderizar_video_com_imagens(
+                    st.session_state['caminhos_audio']['pt'],
+                    st.session_state['caminhos_imagens'],
+                    "pt"
+                )
+                if video_pt:
+                    st.video(video_pt)
+                    st.success("Vídeo PT Pronto!")
+                    
+                    # Botão de Download
+                    with open(video_pt, "rb") as file:
+                        st.download_button("⬇️ Baixar MP4 (PT)", data=file, file_name="historia_pt.mp4", mime="video/mp4")
+
+    with col_render_en:
+        if st.button("2. Renderizar Vídeo EN", disabled=not st.session_state['caminhos_audio']['en']):
+            with st.spinner("Editando vídeo EN..."):
+                video_en = agentes_producao.renderizar_video_com_imagens(
+                    st.session_state['caminhos_audio']['en'],
+                    st.session_state['caminhos_imagens'],
+                    "en"
+                )
+                if video_en:
+                    st.video(video_en)
+                    st.success("Video EN Ready!")
+                    
+                    with open(video_en, "rb") as file:
+                        st.download_button("⬇️ Download MP4 (EN)", data=file, file_name="story_en.mp4", mime="video/mp4")
