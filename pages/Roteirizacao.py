@@ -1,5 +1,7 @@
 import streamlit as st
 import utils
+import agentes_escrita  # Novo módulo
+import pandas as pd
 import time
 
 st.set_page_config(page_title="Roteiro", page_icon="✍️", layout="wide")
@@ -8,96 +10,109 @@ st.set_page_config(page_title="Roteiro", page_icon="✍️", layout="wide")
 if not utils.verificar_senha():
     st.stop()
 
-st.title("✍️ Roteirista Multi-Gênero")
+st.title("✍️ Roteirista Multi-Gênero (Modo Arquiteto)")
 
-
-# --- CONFIGURAÇÃO DA HISTÓRIA ---
+# --- CONFIGURAÇÃO ---
 with st.container(border=True):
     st.subheader("🛠️ Configuração da Narrativa")
-    
     col1, col2 = st.columns(2)
     with col1:
-        # Canal Alvo (Para saber onde vai postar)
-        canal = st.selectbox(
-            "Canal / Público Alvo", 
-            ["Histórias Bíblicas", "Histórias Gerais", "Mistério/Terror", "Curiosidades"]
-        )
-        
-        # MULTI-SELEÇÃO DE GÊNEROS (NOVIDADE)
+        canal = st.selectbox("Canal / Público", ["Histórias Bíblicas", "Histórias Gerais", "Mistério/Terror", "Curiosidades"])
         generos = st.multiselect(
-            "Misturar Gêneros (Escolha 1 ou mais):",
-            [
-                "Ação", "Aventura", "Romance", "Comédia", "Drama", 
-                "Medieval", "Suspense", "Escolar", "Sci-Fi", 
-                "Fantasia", "Terror Psicológico", "Cyberpunk", "Investigação"
-            ],
-            help="A IA vai combinar todos os estilos escolhidos.",
+            "Misturar Gêneros:",
+            ["Ação", "Aventura", "Romance", "Comédia", "Drama", "Medieval", "Suspense", "Terror Psicológico", "Investigação"],
             placeholder="Ex: Ação, Medieval..."
         )
-        
     with col2:
-        tema = st.text_area("Tema Central / Ideia:", height=109, placeholder="Ex: Um cavaleiro que se apaixona pela rainha inimiga...")
+        tema = st.text_area("Tema Central:", height=109, placeholder="Ex: Um cavaleiro que se apaixona pela rainha inimiga...")
 
 # --- AÇÃO ---
-if st.button("🚀 Iniciar Criação", type="primary"):
+if st.button("🚀 Iniciar Criação (Arquiteto)", type="primary"):
     if not tema:
-        st.warning("Por favor, escreva um tema.")
+        st.warning("Escreva um tema.")
     elif not generos:
-        st.warning("Escolha pelo menos um gênero (ex: Drama).")
+        st.warning("Escolha gêneros.")
     else:
-        # Transforma a lista de gêneros em texto (ex: "Ação, Romance")
         generos_str = ", ".join(generos)
+        st.session_state['tema_atual'] = tema 
         
-        with st.status(f"Escrevendo história de {generos_str}...", expanded=True) as status:
+        with st.status(f"Iniciando Motor Criativo...", expanded=True) as status:
             
-            st.write("🧠 Criando Sinopse Criativa...")
-            # Passamos os gêneros para o agente
-            sinopse = utils.agente_sinopse(tema, canal, generos_str)
+            # 1. SINOPSE
+            st.write("🧠 Criando Sinopse...")
+            sinopse = agentes_escrita.agente_sinopse(tema, canal, generos_str)
             st.session_state['sinopse_en'] = sinopse
+            st.info(f"Sinopse: {sinopse[:150]}...")
             
-            st.write("📐 Estruturando Capítulos...")
-            titulos = utils.agente_titulos(sinopse)
+            # 2. PLANEJAMENTO (ARQUITETO)
+            st.write("📐 Arquiteto desenhando a Escaleta...")
+            plano_capitulos = agentes_escrita.agente_planejador(sinopse, generos_str)
             
-            st.write("✍️ Escrevendo Roteiro Completo...")
+            # Mostra o plano na tela
+            df_plano = pd.DataFrame(plano_capitulos)
+            if 'title' in df_plano.columns:
+                st.dataframe(df_plano[['title', 'events']], hide_index=True)
+            else:
+                st.write(plano_capitulos) # Fallback caso o JSON venha diferente
+            
+            # 3. ESCRITA (LOOP GUIADO)
+            st.write("✍️ Escrevendo Roteiro...")
             texto_full = ""
-            progresso = st.progress(0)
+            resumo_acumulado = "Story Start."
+            prompts_acumulados = []
             
-            for i, t in enumerate(titulos):
-                if t.strip():
-                    # Passamos os gêneros também para o escritor manter o tom
-                    cap = utils.agente_escreve_capitulo(t, sinopse, texto_full, generos_str)
-                    texto_full += f"\n\n## {t}\n\n{cap}"
-                    progresso.progress((i+1)/len(titulos))
-                    time.sleep(1)
+            progresso = st.progress(0)
+            total = len(plano_capitulos)
+            
+            for i, cap_info in enumerate(plano_capitulos):
+                titulo = cap_info.get('title', f"Chapter {i+1}")
+                eventos = cap_info.get('events', '')
+                
+                status.update(label=f"Escrevendo Cap {i+1}: {titulo}...", state="running")
+                
+                # Agente V2 escreve baseado no plano
+                texto_cap = agentes_escrita.agente_escreve_capitulo_v2(
+                    titulo, eventos, sinopse, resumo_acumulado, generos_str
+                )
+                
+                # Agente Visual cria prompts
+                prompts_cap = agentes_escrita.agente_visual(texto_cap)
+                prompts_acumulados.extend(prompts_cap)
+                
+                # Resumo para o próximo loop
+                novo_resumo = agentes_escrita.agente_resumidor(texto_cap)
+                resumo_acumulado += f"\nChapter {i+1}: {novo_resumo}"
+                
+                texto_full += f"\n\n## {titulo}\n\n{texto_cap}"
+                progresso.progress((i+1)/total)
+                time.sleep(1) 
             
             st.session_state['texto_completo_en'] = texto_full
+            st.session_state['prompts_visuais'] = prompts_acumulados
             
-            st.write("🇧🇷 Traduzindo e Adaptando...")
-            st.session_state['texto_completo_pt'] = utils.agente_tradutor(texto_full)
+            # 4. TRADUÇÃO
+            st.write("🇧🇷 Traduzindo...")
+            st.session_state['texto_completo_pt'] = agentes_escrita.agente_tradutor(texto_full)
             
-            status.update(label="Roteiro Finalizado!", state="complete", expanded=False)
+            status.update(label="Concluído!", state="complete", expanded=False)
             st.success("História pronta!")
 
-# --- VISUALIZAÇÃO ---
+# --- VISUALIZAÇÃO E SAVE ---
 if st.session_state.get('texto_completo_pt'):
     st.divider()
-    col_save, col_info = st.columns([1, 4])
-    
-    with col_save:
-        # Salva também os gêneros no banco para você filtrar depois
-        if st.button("💾 Salvar no Firebase", type="primary"):
-            generos_salvar = ", ".join(generos) if generos else "Geral"
-            sucesso = utils.salvar_historia_db(
-                f"{canal} ({generos_salvar})", # Salva nicho + gêneros juntos
-                tema, 
-                st.session_state['texto_completo_pt'], 
-                st.session_state['texto_completo_en']
-            )
-            if sucesso:
-                st.toast("Salvo com sucesso!", icon="✅")
+    if st.button("💾 Salvar no Firebase", type="primary"):
+        generos_salvar = ", ".join(generos) if generos else "Geral"
+        sucesso = utils.salvar_historia_db(
+            f"{canal} ({generos_salvar})", 
+            tema, 
+            generos_salvar,
+            st.session_state['texto_completo_pt'], 
+            st.session_state['texto_completo_en'],
+            st.session_state.get('prompts_visuais', [])
+        )
+        if sucesso: st.toast("Salvo!", icon="✅")
 
-    tab_pt, tab_en = st.tabs(["🇧🇷 Português", "🇺🇸 English"])
-    with tab_pt:
-        st.text_area("Roteiro PT", st.session_state['texto_completo_pt'], height=500)
-    with tab_en:
-        st.text_area("Roteiro EN", st.session_state['texto_completo_en'], height=500)
+    tab_pt, tab_en, tab_prompts = st.tabs(["🇧🇷 PT", "🇺🇸 EN", "🎨 Prompts"])
+    with tab_pt: st.text_area("PT", st.session_state['texto_completo_pt'], height=500)
+    with tab_en: st.text_area("EN", st.session_state['texto_completo_en'], height=500)
+    with tab_prompts: st.write(st.session_state.get('prompts_visuais', []))
