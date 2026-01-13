@@ -10,12 +10,11 @@ st.set_page_config(page_title="Roteiro", page_icon="✍️", layout="wide")
 if not utils.verificar_senha():
     st.stop()
 
-# --- 🔌 CONEXÃO (A CORREÇÃO ESTÁ AQUI) ---
-# Precisamos garantir que o Firebase está conectado antes de qualquer coisa
+# --- 🔌 CONEXÃO COM FIREBASE ---
 if not utils.setup_api():
     st.error("Erro de Conexão: Verifique se o secrets.toml está configurado corretamente.")
     st.stop()
-# -----------------------------------------
+# -------------------------------
 
 st.title("✍️ Roteirista Multi-Gênero (Modo Arquiteto)")
 
@@ -55,12 +54,15 @@ if st.button("🚀 Iniciar Criação (Arquiteto)", type="primary"):
             st.write("📐 Arquiteto desenhando a Escaleta...")
             plano_capitulos = agentes_escrita.agente_planejador(sinopse, generos_str)
             
-            # Mostra o plano na tela
-            df_plano = pd.DataFrame(plano_capitulos)
-            if 'title' in df_plano.columns:
-                st.dataframe(df_plano[['title', 'events']], hide_index=True)
-            else:
-                st.write(plano_capitulos) # Fallback caso o JSON venha diferente
+            # --- CORREÇÃO DO ERRO AQUI ---
+            # Mostra o dataframe com o que vier, sem forçar nomes de colunas
+            try:
+                df_plano = pd.DataFrame(plano_capitulos)
+                st.dataframe(df_plano, hide_index=True, use_container_width=True)
+            except:
+                st.write("⚠️ JSON estruturado irregular, mas seguindo o plano:")
+                st.write(plano_capitulos)
+            # -----------------------------
             
             # 3. ESCRITA (LOOP GUIADO)
             st.write("✍️ Escrevendo Roteiro...")
@@ -72,8 +74,9 @@ if st.button("🚀 Iniciar Criação (Arquiteto)", type="primary"):
             total = len(plano_capitulos)
             
             for i, cap_info in enumerate(plano_capitulos):
-                titulo = cap_info.get('title', f"Chapter {i+1}")
-                eventos = cap_info.get('events', '')
+                # Tenta pegar chaves comuns, se não achar, usa um fallback
+                titulo = cap_info.get('title') or cap_info.get('chapter_title') or f"Chapter {i+1}"
+                eventos = cap_info.get('events') or cap_info.get('plot_points') or str(cap_info)
                 
                 status.update(label=f"Escrevendo Cap {i+1}: {titulo}...", state="running")
                 
@@ -110,7 +113,6 @@ if st.session_state.get('texto_completo_pt'):
     if st.button("💾 Salvar no Firebase", type="primary"):
         generos_salvar = ", ".join(generos) if generos else "Geral"
         
-        # Garante que setup_api rodou (redundância de segurança)
         if utils.setup_api():
             sucesso = utils.salvar_historia_db(
                 f"{canal} ({generos_salvar})", 
