@@ -78,12 +78,19 @@ def agente_resumidor(texto_capitulo):
 
 def agente_visual(texto_capitulo):
     model = genai.GenerativeModel('gemini-2.5-flash')
+    # PROMPT REFINADO PARA REALISMO:
     prompt = f"""
     Read this story chapter:
     "{texto_capitulo}"
     
-    Task: Create 5 distinct image prompts to illustrate this chapter.
-    Style: Cinematic, Realistic, 8k, Detailed environment, Wide shot.
+    Task: Create 5 distinct image prompts.
+    
+    CRITICAL VISUAL STYLE (Apply to all prompts):
+    - PHOTREALISTIC, 8k resolution, Raw Photography style.
+    - FILM LOOK: 35mm film grain, cinematic lighting, depth of field.
+    - TEXTURE: Detailed skin texture, imperfect surfaces, realistic dirt/dust.
+    - NEGATIVE PROMPT (Avoid): 3d render, cgi, cartoon, anime, smooth skin, plastic look, video game graphics.
+    
     Output: Return ONLY the 5 prompts separated by a pipe symbol (|).
     """
     try:
@@ -91,7 +98,7 @@ def agente_visual(texto_capitulo):
         prompts = response.text.split('|')
         return [p.strip() for p in prompts if p.strip()]
     except:
-        return ["Cinematic scene of the story, detailed, 8k"] * 5
+        return ["Dark cinematic scene, photorealistic, 8k"] * 5
 
 def agente_tradutor(texto_en):
     model = genai.GenerativeModel('gemini-2.5-flash')
