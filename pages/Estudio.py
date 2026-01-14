@@ -8,35 +8,29 @@ if not utils.verificar_senha(): st.stop()
 
 st.title("🎬 Estúdio de Produção")
 
-# --- VALIDAÇÕES INICIAIS ---
+# --- VALIDAÇÕES ---
 if 'texto_completo_pt' not in st.session_state or not st.session_state['texto_completo_pt']:
     st.warning("⚠️ Nenhum roteiro carregado. Vá para a Biblioteca.")
     st.stop()
 
 # Inicializa variáveis
 if 'caminhos_imagens' not in st.session_state: st.session_state['caminhos_imagens'] = []
-if 'prompts_usados_teste' not in st.session_state: st.session_state['prompts_usados_teste'] = [] 
 if 'caminhos_audio' not in st.session_state: st.session_state['caminhos_audio'] = {"pt": None, "en": None}
-if 'texto_narrado_teste' not in st.session_state: st.session_state['texto_narrado_teste'] = "" # Debug
+if 'prompts_usados_teste' not in st.session_state: st.session_state['prompts_usados_teste'] = []
 
-# --- FUNÇÃO AUXILIAR: EXTRAIR CAPÍTULO 1 ROBUSTA ---
+# --- FUNÇÃO DE EXTRAÇÃO INTELIGENTE ---
 def extrair_capitulo_1(texto_completo):
-    """
-    Tenta isolar apenas o primeiro capítulo.
-    """
     if not texto_completo: return ""
     
-    # 1. Tenta dividir pelo marcador padrão Markdown '## '
-    partes = texto_completo.split('## ')
-    if len(partes) > 2:
-        # partes[0] = vazio/intro, partes[1] = Titulo, partes[2] = Cap 1
-        return "## " + partes[2] 
-    elif len(partes) > 1:
-        # Caso só tenha Titulo e Cap 1
-        return "## " + partes[1]
+    # Lógica: Se tiver '## ', tenta dividir. Se não, assume que é tudo Cap 1.
+    if '## ' in texto_completo:
+        partes = texto_completo.split('## ')
+        # Se partes[0] for muito curto (só titulo), pega partes[1]
+        if len(partes) > 1:
+            return "## " + partes[1]
     
-    # 2. Se falhar, pega os primeiros 1000 caracteres (Fallback)
-    return texto_completo[:1000] + "..."
+    # Se não tem marcadores ou falhou a divisão, pega os primeiros 1500 chars
+    return texto_completo[:1500]
 
 # --- INTERFACE ---
 col_config, col_status = st.columns([1, 2])
@@ -50,64 +44,54 @@ with col_config:
     
     st.divider()
     
-    # --- MODO TESTE ---
+    # MODO TESTE
     st.markdown("#### 🧪 Modo Teste (Capítulo 1)")
     modo_teste = st.checkbox("Ativar Modo Teste", value=True)
     
     if modo_teste:
-        st.info("⚡ **Modo Rápido:**\n- Gera áudio só do Cap 1.\n- Gera só 5 imagens.")
-    else:
-        st.warning("🚨 **Modo Completo:**\n- Gera TUDO.\n- Pode demorar.")
+        st.info("⚡ **Rápido:** Apenas Cap 1 (Texto) + 5 Imagens.")
 
 with col_status:
     st.subheader("🏭 Linha de Produção")
     
-    # BOTÃO 1: GERAR ASSETS
+    # 1. GERAR ASSETS
     if st.button("1. Gerar Áudios e Imagens", type="primary", use_container_width=True):
         if not prompts_totais:
-            st.error("Sem prompts no roteiro.")
+            st.error("Sem prompts.")
         else:
-            # --- DEFINIÇÃO DO ESCOPO ---
             if modo_teste:
                 prompts_para_usar = prompts_totais[:5]
-                # Usa a função robusta para extrair texto
-                texto_pt_uso = extrair_capitulo_1(st.session_state.get('texto_completo_pt', ''))
-                texto_en_uso = extrair_capitulo_1(st.session_state.get('texto_completo_en', ''))
-                suffix_nome = "_teste_v3" # v3 para limpar cache antigo
+                texto_pt = extrair_capitulo_1(st.session_state.get('texto_completo_pt', ''))
+                texto_en = extrair_capitulo_1(st.session_state.get('texto_completo_en', ''))
+                suffix = "_teste_v4"
             else:
                 prompts_para_usar = prompts_totais
-                texto_pt_uso = st.session_state.get('texto_completo_pt', '')
-                texto_en_uso = st.session_state.get('texto_completo_en', '')
-                suffix_nome = ""
-
-            # Salva para debug visual
-            st.session_state['prompts_usados_teste'] = prompts_para_usar
-            st.session_state['texto_narrado_teste'] = texto_pt_uso
+                texto_pt = st.session_state.get('texto_completo_pt', '')
+                texto_en = st.session_state.get('texto_completo_en', '')
+                suffix = ""
             
-            with st.status("Produzindo Assets...", expanded=True) as status:
+            # Salva prompts para legenda
+            st.session_state['prompts_usados_teste'] = prompts_para_usar
+
+            with st.status("Produzindo...", expanded=True) as status:
+                # ÁUDIO
+                st.write(f"🎙️ Gravando Texto PT ({len(texto_pt)} chars)...")
+                # Debug: Mostra o inicio do texto para garantir que pegou certo
+                st.caption(f"Início do texto: {texto_pt[:100]}...")
                 
-                # A. ÁUDIOS
-                st.write("🎙️ Gravando Narração...")
+                path_pt = agentes_producao.gerar_audio(texto_pt, "pt", titulo_video)
+                st.session_state['caminhos_audio']['pt'] = path_pt
                 
-                if texto_pt_uso:
-                    path_pt = agentes_producao.gerar_audio(texto_pt_uso, "pt", titulo_video)
-                    if path_pt and os.path.exists(path_pt):
-                        st.session_state['caminhos_audio']['pt'] = path_pt
-                    else:
-                        st.error("Falha ao criar arquivo de áudio PT.")
-                
-                if texto_en_uso:
-                    path_en = agentes_producao.gerar_audio(texto_en_uso, "en", titulo_video)
+                if texto_en:
+                    path_en = agentes_producao.gerar_audio(texto_en, "en", titulo_video)
                     st.session_state['caminhos_audio']['en'] = path_en
                 
-                # B. IMAGENS
+                # IMAGENS
                 st.write(f"🎨 Pintando {len(prompts_para_usar)} cenas...")
                 lista_imgs = []
                 prog = st.progress(0)
-                
                 for i, p in enumerate(prompts_para_usar):
-                    safe_name = f"cena_{i}_{str(hash(p))[:8]}{suffix_nome}"
-                    path = agentes_producao.gerar_imagem_ia(p, safe_name)
+                    path = agentes_producao.gerar_imagem_ia(p, f"cena_{i}_{str(hash(p))[:8]}{suffix}")
                     if path: lista_imgs.append(path)
                     prog.progress((i+1)/len(prompts_para_usar))
                 
@@ -115,68 +99,48 @@ with col_status:
                 status.update(label="Assets Prontos!", state="complete")
                 st.rerun()
 
-    # --- ÁREA DE DIAGNÓSTICO E PREVIEW (CORRIGIDA) ---
-    
-    # 1. Debug do Texto (Para ver se o Capítulo 1 foi extraído certo)
-    if st.session_state.get('texto_narrado_teste'):
-        with st.expander("📝 Texto enviado para Narração (Debug)", expanded=False):
-            st.text(st.session_state['texto_narrado_teste'])
-            if len(st.session_state['texto_narrado_teste']) < 10:
-                st.error("⚠️ O texto parece muito curto ou vazio! Isso explica o erro no vídeo.")
-
-    # 2. Player de Áudio (AGORA DE VOLTA!)
+    # PREVIEW
     if st.session_state['caminhos_audio']['pt']:
-        st.write("🎧 **Áudio PT-BR Gerado:**")
         st.audio(st.session_state['caminhos_audio']['pt'], format="audio/mp3")
-    else:
-        if st.session_state.get('caminhos_imagens'): # Se tem imagens mas não áudio
-            st.warning("⚠️ Áudio PT não encontrado. Tente gerar novamente.")
 
-    # 3. Preview Imagens
     if st.session_state['caminhos_imagens']:
-        with st.expander(f"👁️ Visualizar {len(st.session_state['caminhos_imagens'])} Imagens", expanded=False):
-            st.image(st.session_state['caminhos_imagens'][:5], width=150)
+        with st.expander("👁️ Visualizar Imagens", expanded=False):
+            # Grid com legendas (prompts)
+            imgs = st.session_state['caminhos_imagens']
+            prms = st.session_state.get('prompts_usados_teste', [])
+            cols = st.columns(3)
+            for i, path in enumerate(imgs):
+                with cols[i%3]:
+                    st.image(path, use_container_width=True)
+                    if i < len(prms):
+                        st.caption(f"{prms[i][:60]}...")
 
     st.divider()
     
-    # --- RENDERIZAÇÃO ---
-    c1, c2 = st.columns(2)
+    # 2. RENDERIZAR
+    col_pt, col_en = st.columns(2)
     
-    with c1:
-        # Verifica se arquivo existe fisicamente
-        audio_pt_path = st.session_state['caminhos_audio']['pt']
-        tem_audio_pt = audio_pt_path is not None and os.path.exists(audio_pt_path)
-        
-        if st.button("2. Renderizar Vídeo (PT-BR)", disabled=not tem_audio_pt):
-            with st.spinner("Editando vídeo PT..."):
-                # Debug Check
-                if not st.session_state['caminhos_imagens']:
-                    st.error("Lista de imagens vazia.")
-                else:
-                    v_pt = agentes_producao.renderizar_video_com_imagens(
-                        audio_pt_path, 
-                        st.session_state['caminhos_imagens'], 
-                        "pt"
-                    )
-                    
-                    if v_pt:
-                        st.success("Vídeo Renderizado!")
-                        st.video(v_pt)
-                        with open(v_pt, "rb") as f: st.download_button("⬇️ Baixar PT", f, "video_cap1_pt.mp4")
+    with col_pt:
+        path_audio = st.session_state['caminhos_audio']['pt']
+        if st.button("2. Renderizar PT", disabled=not path_audio):
+            with st.spinner("Renderizando... (Isso pode levar ~1 min)"):
+                try:
+                    # Verifica arquivos
+                    if not os.path.exists(path_audio):
+                        st.error("Arquivo de áudio sumiu!")
+                    elif not st.session_state['caminhos_imagens']:
+                        st.error("Sem imagens!")
                     else:
-                        st.error("Falha na renderização. Verifique os logs do terminal.")
-
-    with c2:
-        audio_en_path = st.session_state['caminhos_audio']['en']
-        tem_audio_en = audio_en_path is not None and os.path.exists(audio_en_path)
-        
-        if st.button("2. Renderizar Vídeo (EN)", disabled=not tem_audio_en):
-            with st.spinner("Editing EN video..."):
-                v_en = agentes_producao.renderizar_video_com_imagens(
-                    audio_en_path, 
-                    st.session_state['caminhos_imagens'], 
-                    "en"
-                )
-                if v_en:
-                    st.video(v_en)
-                    with open(v_en, "rb") as f: st.download_button("⬇️ Download EN", f, "video_cap1_en.mp4")
+                        v_pt = agentes_producao.renderizar_video_com_imagens(
+                            path_audio, 
+                            st.session_state['caminhos_imagens'], 
+                            "pt"
+                        )
+                        if v_pt:
+                            st.success("Sucesso!")
+                            st.video(v_pt)
+                            with open(v_pt, "rb") as f: st.download_button("⬇️ Baixar", f, "video_teste.mp4")
+                        else:
+                            st.error("Renderizador retornou None (veja logs do terminal).")
+                except Exception as e:
+                    st.error(f"ERRO FATAL NO RENDER: {e}")
