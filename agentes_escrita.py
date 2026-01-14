@@ -17,9 +17,6 @@ def agente_sinopse(tema, nicho, generos):
 
 # --- 2. O ARQUITETO (PLANEJADOR) ---
 def agente_planejador(sinopse, generos):
-    """
-    Cria a escaleta (Beat Sheet) para evitar repetições.
-    """
     model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = f"""
     Role: Story Architect.
@@ -49,10 +46,9 @@ def agente_planejador(sinopse, generos):
         return json.loads(response.text)
     except Exception as e:
         print(f"Erro Planejador: {e}")
-        # Fallback se o JSON falhar
-        return [{"title": f"Chapter {i}", "events": "Continue the story based on synopsis."} for i in range(1,9)]
+        return [{"title": f"Chapter {i}", "events": "Continue story."} for i in range(1,9)]
 
-# --- 3. O ESCRITOR V2 (EXECUTOR) ---
+# --- 3. O ESCRITOR V2 ---
 def agente_escreve_capitulo_v2(titulo, eventos_capitulo, sinopse, resumo_anterior, generos):
     model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = f"""
@@ -63,7 +59,7 @@ def agente_escreve_capitulo_v2(titulo, eventos_capitulo, sinopse, resumo_anterio
     MANDATORY EVENTS TO COVER (The Plan):
     {eventos_capitulo}
     
-    PREVIOUS CONTEXT (Summary of what just happened):
+    PREVIOUS CONTEXT (Summary):
     {resumo_anterior}
     
     INSTRUCTIONS:
@@ -71,11 +67,11 @@ def agente_escreve_capitulo_v2(titulo, eventos_capitulo, sinopse, resumo_anterio
     - Length: 400-500 words.
     - Language: English.
     - Style: Narrative documentary / Audio-book style.
-    - CRITICAL: STICK TO THE PLAN. Do not advance to future events. Do not repeat past reveals.
+    - CRITICAL: STICK TO THE PLAN. Do not advance to future events.
     """
     return model.generate_content(prompt).text
 
-# --- 4. AUXILIARES (RESUMO, VISUAL, TRADUÇÃO) ---
+# --- 4. AUXILIARES ---
 def agente_resumidor(texto_capitulo):
     model = genai.GenerativeModel('gemini-2.5-flash')
     return model.generate_content(f"Summarize the key events of this text in 3 sentences (English): {texto_capitulo}").text
@@ -87,9 +83,8 @@ def agente_visual(texto_capitulo):
     "{texto_capitulo}"
     
     Task: Create 5 distinct image prompts to illustrate this chapter.
-    Style: Cinematic, Realistic, 8k, Detailed environment.
+    Style: Cinematic, Realistic, 8k, Detailed environment, Wide shot.
     Output: Return ONLY the 5 prompts separated by a pipe symbol (|).
-    Example: Ancient king on throne | Army marching in desert | ...
     """
     try:
         response = model.generate_content(prompt)
@@ -100,5 +95,43 @@ def agente_visual(texto_capitulo):
 
 def agente_tradutor(texto_en):
     model = genai.GenerativeModel('gemini-2.5-flash')
-    # Pedimos para traduzir mantendo a formatação Markdown
     return model.generate_content(f"Traduza para PT-BR, mantendo fielmente a formatação Markdown (## Títulos, etc):\n{texto_en}").text
+
+# --- 5. O CRÍTICO (NOVO) ---
+def agente_critico(texto_completo, generos):
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    prompt = f"""
+    ATUE COMO: Editor Literário Sênior de {generos}.
+    TAREFA: Critique esta história.
+    TEXTO: "{texto_completo}"
+    
+    FOCO:
+    1. Motivação do Vilão (É específica? Se for vaga, reclame).
+    2. Final (É impactante? Sugira algo cruel/psicológico se for fraco).
+    3. Clichês.
+    
+    SAÍDA: Lista de melhorias em Português.
+    """
+    return model.generate_content(prompt).text
+
+# --- 6. O REESCRITOR (NOVO) ---
+def agente_reescritor(texto_atual, critica, generos):
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    prompt = f"""
+    ATUE COMO: Ghostwriter Especialista.
+    TAREFA: Reescreva a história aplicando a crítica do Editor.
+    
+    HISTÓRIA ORIGINAL:
+    "{texto_atual}"
+    
+    CRÍTICA DO EDITOR:
+    "{critica}"
+    
+    INSTRUÇÕES:
+    - Mantenha a estrutura de capítulos.
+    - Corrija APENAS o que foi criticado (melhore a motivação, mude o final).
+    - Mantenha o tom {generos}.
+    - Saída: História completa reescrita em Português (Markdown).
+    """
+    # Aumentamos o limite para garantir texto longo
+    return model.generate_content(prompt).text
