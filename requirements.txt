@@ -1,8 +1,7 @@
 streamlit
-google-generativeai
 google-genai
 edge-tts
-moviepy==1.0.3
+moviepy>=2.0.0.dev2
 imageio-ffmpeg
 nest_asyncio
 Pillow
