@@ -1,122 +1,75 @@
 import streamlit as st
 import utils
-import agentes_producao  # A nova fábrica
+import agentes_producao
 import os
 
 st.set_page_config(page_title="Estúdio", page_icon="🎬", layout="wide")
-
-# --- 🔒 TRAVA DE SEGURANÇA ---
-if not utils.verificar_senha():
-    st.stop()
+if not utils.verificar_senha(): st.stop()
 
 st.title("🎬 Estúdio de Produção")
 
-# --- VERIFICAÇÃO DE MEMÓRIA ---
-# Garante que temos uma história carregada para produzir
 if 'texto_completo_pt' not in st.session_state or not st.session_state['texto_completo_pt']:
-    st.warning("⚠️ Nenhum roteiro carregado.")
-    st.info("Vá para **Roteirização** (criar novo) ou **Biblioteca** (carregar existente).")
+    st.warning("⚠️ Nenhum roteiro carregado. Vá para a Biblioteca.")
     st.stop()
 
-# Inicializa variáveis de caminhos se não existirem
-if 'caminhos_imagens' not in st.session_state:
-    st.session_state['caminhos_imagens'] = []
-if 'caminhos_audio' not in st.session_state:
-    st.session_state['caminhos_audio'] = {"pt": None, "en": None}
+if 'caminhos_imagens' not in st.session_state: st.session_state['caminhos_imagens'] = []
+if 'caminhos_audio' not in st.session_state: st.session_state['caminhos_audio'] = {"pt": None, "en": None}
 
-# --- CONFIGURAÇÃO ---
 col_config, col_status = st.columns([1, 2])
 
 with col_config:
     st.subheader("⚙️ Config")
-    titulo_video = st.text_input("Título do Vídeo", value=st.session_state.get('tema_atual', 'Minha História'))
-    
-    # Mostra quantos prompts temos
+    titulo_video = st.text_input("Título", value=st.session_state.get('tema_atual', 'História'))
     prompts = st.session_state.get('prompts_visuais', [])
-    st.metric("Cenas (Prompts)", len(prompts))
-    
-    if not prompts:
-        st.error("ERRO: Roteiro sem prompts visuais. A IA não gerou as descrições das cenas.")
+    st.metric("Cenas", len(prompts))
+    st.caption("Modelo de Imagem: **Imagen 4 Fast (16:9)**")
 
 with col_status:
     st.subheader("🏭 Linha de Produção")
     
-    # --- PASSO 1: GERAR ASSETS (ÁUDIO + IMAGENS) ---
     if st.button("1. Gerar Áudios e Imagens", type="primary", use_container_width=True):
         if not prompts:
-            st.error("Não há prompts para gerar imagens.")
+            st.error("Sem prompts.")
         else:
-            with st.status("Trabalhando nos Assets...", expanded=True) as status:
+            with st.status("Gerando Assets...", expanded=True) as status:
+                # Áudios
+                st.write("🎙️ TTS...")
+                st.session_state['caminhos_audio']['pt'] = agentes_producao.gerar_audio(st.session_state['texto_completo_pt'], "pt", titulo_video)
+                st.session_state['caminhos_audio']['en'] = agentes_producao.gerar_audio(st.session_state['texto_completo_en'], "en", titulo_video)
                 
-                # A. ÁUDIOS
-                st.write("🎙️ Gerando Narração (TTS)...")
-                if st.session_state.get('texto_completo_pt'):
-                    path_pt = agentes_producao.gerar_audio(st.session_state['texto_completo_pt'], "pt", titulo_video)
-                    st.session_state['caminhos_audio']['pt'] = path_pt
-                
-                if st.session_state.get('texto_completo_en'):
-                    path_en = agentes_producao.gerar_audio(st.session_state['texto_completo_en'], "en", titulo_video)
-                    st.session_state['caminhos_audio']['en'] = path_en
-                
-                # B. IMAGENS (LOOP)
-                st.write(f"🎨 Pintando {len(prompts)} cenas com IA...")
+                # Imagens
+                st.write(f"🎨 Pintando {len(prompts)} cenas (Imagen 4 Fast)...")
                 lista_imgs = []
-                progresso = st.progress(0)
-                
-                for i, prompt in enumerate(prompts):
-                    # Nome único para cada imagem: historia_X_cena_Y.png
-                    # Usamos um hash simples do prompt ou index para garantir ordem
-                    safe_name = f"cena_{i}_{str(hash(prompt))[:8]}"
-                    
-                    caminho_img = agentes_producao.gerar_imagem_ia(prompt, safe_name)
-                    if caminho_img:
-                        lista_imgs.append(caminho_img)
-                    
-                    progresso.progress((i + 1) / len(prompts))
+                prog = st.progress(0)
+                for i, p in enumerate(prompts):
+                    safe_name = f"cena_{i}_{str(hash(p))[:8]}"
+                    # Chama a função nova do agentes_producao
+                    path = agentes_producao.gerar_imagem_ia(p, safe_name)
+                    if path: lista_imgs.append(path)
+                    prog.progress((i+1)/len(prompts))
                 
                 st.session_state['caminhos_imagens'] = lista_imgs
-                status.update(label="Assets Gerados com Sucesso!", state="complete", expanded=False)
+                status.update(label="Pronto!", state="complete")
                 st.rerun()
 
-    # --- PREVIEW DOS ASSETS ---
     if st.session_state['caminhos_imagens']:
-        with st.expander("Ver Imagens Geradas", expanded=False):
-            st.image(st.session_state['caminhos_imagens'], width=150, caption=[f"Cena {i+1}" for i in range(len(st.session_state['caminhos_imagens']))])
+        with st.expander("Preview Imagens", expanded=False):
+            st.image(st.session_state['caminhos_imagens'][:4], width=150, caption="Amostra")
 
-    if st.session_state['caminhos_audio']['pt']:
-        st.audio(st.session_state['caminhos_audio']['pt'], format="audio/mp3")
-
-    # --- PASSO 2: RENDERIZAR VÍDEO ---
     st.divider()
-    col_render_pt, col_render_en = st.columns(2)
-    
-    with col_render_pt:
-        if st.button("2. Renderizar Vídeo PT-BR", disabled=not st.session_state['caminhos_audio']['pt']):
-            with st.spinner("Editando vídeo PT..."):
-                video_pt = agentes_producao.renderizar_video_com_imagens(
-                    st.session_state['caminhos_audio']['pt'],
-                    st.session_state['caminhos_imagens'],
-                    "pt"
-                )
-                if video_pt:
-                    st.video(video_pt)
-                    st.success("Vídeo PT Pronto!")
-                    
-                    # Botão de Download
-                    with open(video_pt, "rb") as file:
-                        st.download_button("⬇️ Baixar MP4 (PT)", data=file, file_name="historia_pt.mp4", mime="video/mp4")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("2. Renderizar PT-BR", disabled=not st.session_state['caminhos_audio']['pt']):
+            with st.spinner("Renderizando..."):
+                v_pt = agentes_producao.renderizar_video_com_imagens(st.session_state['caminhos_audio']['pt'], st.session_state['caminhos_imagens'], "pt")
+                if v_pt:
+                    st.video(v_pt)
+                    with open(v_pt, "rb") as f: st.download_button("⬇️ Baixar PT", f, "video_pt.mp4")
 
-    with col_render_en:
-        if st.button("2. Renderizar Vídeo EN", disabled=not st.session_state['caminhos_audio']['en']):
-            with st.spinner("Editando vídeo EN..."):
-                video_en = agentes_producao.renderizar_video_com_imagens(
-                    st.session_state['caminhos_audio']['en'],
-                    st.session_state['caminhos_imagens'],
-                    "en"
-                )
-                if video_en:
-                    st.video(video_en)
-                    st.success("Video EN Ready!")
-                    
-                    with open(video_en, "rb") as file:
-                        st.download_button("⬇️ Download MP4 (EN)", data=file, file_name="story_en.mp4", mime="video/mp4")
+    with c2:
+        if st.button("2. Renderizar EN", disabled=not st.session_state['caminhos_audio']['en']):
+            with st.spinner("Rendering..."):
+                v_en = agentes_producao.renderizar_video_com_imagens(st.session_state['caminhos_audio']['en'], st.session_state['caminhos_imagens'], "en")
+                if v_en:
+                    st.video(v_en)
+                    with open(v_en, "rb") as f: st.download_button("⬇️ Download EN", f, "video_en.mp4")
