@@ -1,12 +1,22 @@
 import os
 import edge_tts
 import asyncio
-from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
 from PIL import Image
 import io
 import streamlit as st
 import utils # Usa o utils para pegar cliente
 from google.genai import types
+
+# --- CORREÇÃO DE IMPORTS (COMPATIBILIDADE MOVIEPY v2) ---
+try:
+    # Tenta importar do jeito novo (MoviePy v2.0+)
+    from moviepy.audio.io.AudioFileClip import AudioFileClip
+    from moviepy.video.VideoClip import ImageClip
+    from moviepy.video.compositing.concatenate import concatenate_videoclips
+except ImportError:
+    # Fallback para versão antiga (v1.x)
+    from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
+# --------------------------------------------------------
 
 # --- ÁUDIO (TTS) ---
 async def _tts_async(texto, voz, arquivo):
@@ -30,6 +40,8 @@ def gerar_audio(texto, idioma, titulo):
 def gerar_imagem_ia(prompt, nome_arquivo):
     if not os.path.exists("temp"): os.makedirs("temp")
     caminho_final = f"temp/{nome_arquivo}.png"
+    
+    # Verifica cache (para não gastar dinheiro a toa)
     if os.path.exists(caminho_final): return caminho_final
 
     client = utils.get_google_client()
@@ -58,7 +70,7 @@ def gerar_imagem_ia(prompt, nome_arquivo):
 
     except Exception as e:
         print(f"❌ Erro Imagem: {e}")
-        # Fallback de imagem preta (sem usar biblioteca velha)
+        # Fallback de imagem preta
         try:
             img = Image.new('RGB', (1920, 1080), color=(10, 10, 10))
             img.save(caminho_final)
@@ -67,25 +79,51 @@ def gerar_imagem_ia(prompt, nome_arquivo):
 
 # --- VÍDEO ---
 def renderizar_video_com_imagens(audio_path, lista_imagens, idioma):
-    # (Mantenha o código de renderização igual ao anterior, ele não usa a lib do google)
     if not os.path.exists(audio_path): return None
-    audio = AudioFileClip(audio_path)
-    duracao_total = audio.duration
-    if not lista_imagens: return None
-    tempo_por_imagem = duracao_total / len(lista_imagens)
     
-    clips = []
-    for img_path in lista_imagens:
-        try:
-            clip = ImageClip(img_path).set_duration(tempo_por_imagem).set_position('center')
-            clip = clip.resize(lambda t: 1 + 0.04*t) 
-            clips.append(clip)
-        except: continue
-            
-    if not clips: return None
+    try:
+        audio = AudioFileClip(audio_path)
+        duracao_total = audio.duration
+        if not lista_imagens: return None
+        tempo_por_imagem = duracao_total / len(lista_imagens)
+        
+        clips = []
+        for img_path in lista_imagens:
+            try:
+                # Cria clip e define duração
+                clip = ImageClip(img_path).with_duration(tempo_por_imagem).with_position('center')
+                # Nota: em MoviePy v2, .set_duration vira .with_duration
+                # Se der erro de atributo, usamos o try/except abaixo para garantir compatibilidade
+                
+                # Zoom (Ken Burns)
+                clip = clip.resized(lambda t: 1 + 0.04*t) 
+                clips.append(clip)
+            except AttributeError:
+                # Sintaxe antiga (v1)
+                clip = ImageClip(img_path).set_duration(tempo_por_imagem).set_position('center')
+                clip = clip.resize(lambda t: 1 + 0.04*t)
+                clips.append(clip)
+            except Exception as e:
+                print(f"Erro imagem individual: {e}")
+                continue
+                
+        if not clips: return None
 
-    video_final = concatenate_videoclips(clips, method="compose")
-    video_final = video_final.set_audio(audio)
-    output = f"video_final_{idioma}.mp4"
-    video_final.write_videofile(output, fps=24, codec="libx264", audio_codec="aac", preset="ultrafast", threads=4)
-    return output
+        video_final = concatenate_videoclips(clips, method="compose")
+        video_final = video_final.with_audio(audio) if hasattr(video_final, 'with_audio') else video_final.set_audio(audio)
+        
+        output = f"video_final_{idioma}.mp4"
+        
+        # Renderização
+        video_final.write_videofile(
+            output, 
+            fps=24, 
+            codec="libx264", 
+            audio_codec="aac", 
+            preset="ultrafast", 
+            threads=4
+        )
+        return output
+    except Exception as e:
+        print(f"Erro renderização: {e}")
+        return None
