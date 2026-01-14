@@ -2,8 +2,21 @@ import os
 import edge_tts
 import asyncio
 from moviepy.editor import AudioFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips
-from PIL import Image, ImageDraw
-import google.generativeai as genai
+from PIL import Image
+import io
+import streamlit as st
+# Importação da nova biblioteca oficial do Google
+from google import genai
+from google.genai import types
+
+# --- CONFIGURAÇÃO DO CLIENTE GOOGLE (NOVA LIB) ---
+try:
+    # Tenta pegar a chave dos segredos
+    api_key = st.secrets["GOOGLE_API_KEY"]
+    client = genai.Client(api_key=api_key)
+except Exception as e:
+    print(f"Erro ao configurar Client GenAI: {e}")
+    client = None
 
 # --- ÁUDIO (TTS) ---
 async def _tts_async(texto, voz, arquivo):
@@ -15,6 +28,7 @@ def gerar_audio(texto, idioma, titulo):
     voz = "pt-BR-AntonioNeural" if idioma == "pt" else "en-US-ChristopherNeural"
     arquivo = f"temp/audio_{idioma}.mp3"
     
+    # Limpeza para evitar ler formatação
     texto_limpo = texto.replace("##", "").replace("**", "").replace("*", "")
     texto_final = f"{titulo}.\n\n{texto_limpo}"
     
@@ -25,36 +39,57 @@ def gerar_audio(texto, idioma, titulo):
         print(f"Erro TTS: {e}")
         return None
 
-# --- IMAGEM (IA) ---
+# --- IMAGEM REAL (IMAGEN 4 FAST) ---
 def gerar_imagem_ia(prompt, nome_arquivo):
-    """
-    Tenta gerar imagem com Gemini 2.5 Flash Image.
-    Se falhar, cria imagem preta com texto (fallback).
-    """
     if not os.path.exists("temp"): os.makedirs("temp")
     caminho_final = f"temp/{nome_arquivo}.png"
     
+    # Cache: Se já existe, não gasta dinheiro gerando de novo
     if os.path.exists(caminho_final): return caminho_final
 
+    if not client:
+        print("Erro crítico: Cliente GenAI não inicializado.")
+        return None
+
     try:
-        # TENTATIVA REAL COM A API PAGA
-        model_img = genai.GenerativeModel('gemini-2.5-flash') 
-        # Nota: A sintaxe exata da geração de imagem pode variar com a versão da lib 'google-generativeai'.
-        # Se a versão for antiga, isso vai falhar e cair no 'except', rodando o fallback.
-        # Isso garante que seu código não trave.
+        print(f"🎨 Gerando (Imagen 4 Fast): {nome_arquivo}...")
         
-        # Simulação para o teste de fluxo (Substitua isso pela chamada real quando documentado)
-        raise Exception("Placeholder para teste de fluxo - ativando fallback seguro")
+        # Chamada para o Imagen 4 Fast (Econômico e Potente)
+        response = client.models.generate_images(
+            model='imagen-4.0-fast-generate-001',
+            prompt=prompt,
+            config=types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio="16:9", # Horizontal (YouTube/Cinema)
+                safety_filter_level="block_low_and_above" # Filtro exigido pela API
+            )
+        )
         
-    except Exception as e:
-        # FALLBACK SEGURO (Gera imagem localmente para não parar o vídeo)
-        img = Image.new('RGB', (1080, 1920), color=(20, 20, 20))
-        d = ImageDraw.Draw(img)
-        d.text((50, 900), prompt[:60], fill=(200,200,200)) # Escreve o prompt na imagem
-        img.save(caminho_final)
+        # Extração Segura da Imagem (Bytes -> PIL)
+        generated_image = response.generated_images[0].image
+        
+        if isinstance(generated_image, types.Image):
+            image_bytes = generated_image.image_bytes
+            pil_image = Image.open(io.BytesIO(image_bytes))
+            pil_image.save(caminho_final)
+        else:
+            # Fallback se a API mudar o tipo de retorno
+            generated_image.save(caminho_final)
+            
         return caminho_final
 
-# --- VÍDEO (RENDERIZAÇÃO) ---
+    except Exception as e:
+        print(f"❌ Erro Imagem ({nome_arquivo}): {e}")
+        
+        # Fallback de Emergência (Gera imagem preta para não travar o vídeo)
+        try:
+            img = Image.new('RGB', (1920, 1080), color=(10, 10, 10))
+            img.save(caminho_final)
+            return caminho_final
+        except:
+            return None
+
+# --- VÍDEO (RENDERIZAÇÃO COM ZOOM) ---
 def renderizar_video_com_imagens(audio_path, lista_imagens, idioma):
     if not os.path.exists(audio_path): return None
     
@@ -66,24 +101,31 @@ def renderizar_video_com_imagens(audio_path, lista_imagens, idioma):
     
     clips = []
     for img_path in lista_imagens:
-        # Cria clip de imagem com duração dividida
-        clip = ImageClip(img_path).set_duration(tempo_por_imagem).set_position('center')
-        clips.append(clip)
-        
-    # Junta as imagens em sequência
+        try:
+            clip = ImageClip(img_path).set_duration(tempo_por_imagem).set_position('center')
+            
+            # Efeito Ken Burns Suave (Zoom In de 4% ao longo do clipe)
+            clip = clip.resize(lambda t: 1 + 0.04*t) 
+            
+            clips.append(clip)
+        except Exception as e:
+            print(f"Erro clip {img_path}: {e}")
+            continue
+            
+    if not clips: return None
+
     video_final = concatenate_videoclips(clips, method="compose")
     video_final = video_final.set_audio(audio)
     
     output = f"video_final_{idioma}.mp4"
-    video_final.write_videofile(output, fps=24, codec="libx264", audio_codec="aac", preset="ultrafast")
+    
+    # Preset 'ultrafast' para testes rápidos. Use 'medium' para qualidade final.
+    video_final.write_videofile(
+        output, 
+        fps=24, 
+        codec="libx264", 
+        audio_codec="aac", 
+        preset="ultrafast",
+        threads=4
+    )
     return output
-
-# --- CAPA SIMPLES ---
-def gerar_capa_simples(titulo, nicho):
-    if not os.path.exists("temp"): os.makedirs("temp")
-    path = "temp/capa_temp.png"
-    img = Image.new('RGB', (1080, 1920), color=(10, 20, 50))
-    d = ImageDraw.Draw(img)
-    d.text((100, 800), titulo, fill=(255,255,0))
-    img.save(path)
-    return path
