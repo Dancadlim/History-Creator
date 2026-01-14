@@ -13,16 +13,22 @@ if not utils.verificar_senha():
 st.title("📚 Biblioteca de Histórias")
 
 # --- CONEXÃO ---
+# O utils.setup_api() agora garante que o Firebase (e o Google) estão prontos
 if not utils.setup_api():
-    st.error("Erro ao conectar no banco de dados. Verifique o secrets.toml")
+    st.error("Erro ao conectar nos serviços. Verifique o secrets.toml")
     st.stop()
 
 # --- BUSCA DE DADOS ---
-@st.cache_data(ttl=5) # Cache curto para ver mudanças de status rápido
+@st.cache_data(ttl=5) # Cache curto para atualização rápida
 def carregar_historias():
     try:
         db = firestore.client()
-        docs = db.collection("historias").order_by("data_criacao", direction=firestore.Query.DESCENDING).stream()
+        # Tenta ordenar por data (requer índice no Firebase na primeira vez)
+        try:
+            docs = db.collection("historias").order_by("data_criacao", direction=firestore.Query.DESCENDING).stream()
+        except:
+            # Fallback se não tiver índice ainda
+            docs = db.collection("historias").stream()
         
         lista_historias = []
         for doc in docs:
@@ -32,20 +38,13 @@ def carregar_historias():
             
         return lista_historias
     except Exception as e:
-        # Se der erro de index (comum no firebase inicio), tenta sem ordem
-        try:
-            db = firestore.client()
-            docs = db.collection("historias").stream()
-            lista = [ {**doc.to_dict(), 'id': doc.id} for doc in docs]
-            return lista
-        except:
-            st.error(f"Erro ao baixar histórias: {e}")
-            return []
+        st.error(f"Erro ao baixar histórias: {e}")
+        return []
 
 historias = carregar_historias()
 
 if not historias:
-    st.info("Nenhuma história encontrada no banco de dados ainda.")
+    st.info("Nenhuma história encontrada no banco de dados.")
     st.stop()
 
 # --- FILTROS ---
@@ -92,7 +91,7 @@ for item in historias:
     else:
         lista_geral.append(item)
 
-# --- EXIBIÇÃO ---
+# --- FUNÇÃO DE EXIBIÇÃO ---
 def exibir_lista(lista_items):
     for hist in lista_items:
         # Ícone visual
@@ -114,22 +113,27 @@ def exibir_lista(lista_items):
             # --- BOTÃO MÁGICO DE CARREGAR ---
             st.info("💡 **Produção:**")
             if st.button(f"🎬 Carregar no Estúdio", key=f"load_{hist['id']}", type="primary"):
-                # 1. Carrega os Dados
+                # 1. Carrega os Dados Principais
                 st.session_state['texto_completo_pt'] = hist.get('roteiro_pt')
                 st.session_state['texto_completo_en'] = hist.get('roteiro_en')
                 st.session_state['tema_atual'] = hist.get('tema')
                 st.session_state['prompts_visuais'] = hist.get('prompts', [])
                 
-                # 2. Limpa dados de sessões anteriores (CRUCIAL!)
+                # 2. LIMPEZA DE SESSÃO (IMPORTANTE PARA O NOVO FLUXO)
+                # Reseta caminhos de arquivos antigos
                 st.session_state['caminhos_imagens'] = []
                 st.session_state['caminhos_audio'] = {"pt": None, "en": None}
+                
+                # Reseta Críticas antigas (para não misturar feedbacks)
+                if 'critica_atual' in st.session_state:
+                    del st.session_state['critica_atual']
                 
                 st.toast("Roteiro carregado! Vá para a aba 'Estúdio'.", icon="🚀")
 
             st.divider()
 
-            # Conteúdo
-            t_sinopse, t_pt, t_en, t_prompts = st.tabs(["📝 Sinopse", "🇧🇷 Roteiro PT", "🇺🇸 Roteiro EN", "🎨 Prompts"])
+            # Visualização Rápida
+            t_sinopse, t_pt, t_en, t_prompts = st.tabs(["📝 Sinopse", "🇧🇷 PT", "🇺🇸 EN", "🎨 Prompts"])
             
             with t_sinopse: st.write(hist.get('sinopse', '...'))
             with t_pt: st.text_area("PT", hist.get('roteiro_pt', ''), height=150, key=f"pt_{hist['id']}")
@@ -157,13 +161,13 @@ def exibir_lista(lista_items):
                         utils.atualizar_status_historia(hist['id'], "Postado")
                         st.rerun()
 
-# RENDERIZAÇÃO
+# --- RENDERIZAÇÃO DAS ABAS ---
 tab_biblia, tab_geral = st.tabs([f"✝️ Bíblicas ({len(lista_biblia)})", f"🌍 Gerais ({len(lista_geral)})"])
 
 with tab_biblia:
     if lista_biblia: exibir_lista(lista_biblia)
-    else: st.warning("Nada aqui.")
+    else: st.warning("Nenhuma história bíblica encontrada.")
 
 with tab_geral:
     if lista_geral: exibir_lista(lista_geral)
-    else: st.warning("Nada aqui.")
+    else: st.warning("Nenhuma história geral encontrada.")
